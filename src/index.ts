@@ -76,9 +76,16 @@ export interface SellubClientOptions {
    */
   baseUrl?: string;
   /**
-   * Optional API key. When the Sellub server is configured with
-   * `EXTERNAL_PAYMENTS_API_KEY`, requests must include
-   * `X-Sellub-Api-Key` — this client adds it automatically.
+   * Publishable key for browser-side calls (`pk_live_*` / `pk_test_*`).
+   * Bound to a single channel and pinned to the calling origin on the
+   * server. Safe to expose in client bundles.
+   *
+   * Sent as `X-Sellub-Publishable-Key` on every request.
+   */
+  publishableKey?: string;
+  /**
+   * @deprecated Renamed to `publishableKey`. Kept for v0.1 compatibility;
+   * if both are set, `publishableKey` wins.
    */
   apiKey?: string;
   /**
@@ -116,7 +123,7 @@ export function createSellubClient(
   options: SellubClientOptions = {}
 ): SellubClient {
   const baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
-  const apiKey = options.apiKey;
+  const publishableKey = options.publishableKey ?? options.apiKey;
   const fetchImpl =
     options.fetch ??
     (typeof fetch !== "undefined" ? fetch.bind(globalThis) : undefined);
@@ -132,7 +139,7 @@ export function createSellubClient(
       "Content-Type": "application/json",
       ...extra,
     };
-    if (apiKey) h["X-Sellub-Api-Key"] = apiKey;
+    if (publishableKey) h["X-Sellub-Publishable-Key"] = publishableKey;
     return h;
   };
 

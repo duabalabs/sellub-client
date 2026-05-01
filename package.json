@@ -1,6 +1,6 @@
 {
   "name": "@duabalabs/sellub-client",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Typed client for the Sellub commerce platform (external payments today; Shop / Admin / Embed APIs coming).",
   "license": "MIT",
   "main": "dist/index.js",
