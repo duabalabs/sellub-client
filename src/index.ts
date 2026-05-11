@@ -18,7 +18,7 @@
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Types — mirror sellub-server/src/plugins/dps-e-external-payments/src/types.ts
+// Types — mirror sellub-server/src/plugins/sellub-external-payments/src/types.ts
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface ExternalPaymentInitializeRequest {
