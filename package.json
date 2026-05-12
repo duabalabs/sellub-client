@@ -1,6 +1,6 @@
 {
   "name": "@duabalabs/sellub-client",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Typed client for the Sellub commerce platform: external payments, subscriptions, invoices, the Vendure Shop GraphQL API (catalog / cart / checkout / orders) and an opt-in server-only Admin namespace (channels, orders, refunds, subscriptions).",
   "license": "MIT",
   "main": "dist/index.js",

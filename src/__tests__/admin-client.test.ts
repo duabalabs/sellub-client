@@ -307,22 +307,31 @@ describe("AdminClient — orders", () => {
     ).rejects.toBeInstanceOf(AdminApiError);
   });
 
-  it("listSubscriptions queries sellubSubscriptions with filters", async () => {
+  it("listSubscriptions queries dpsEAllSubscriptions with options", async () => {
     const f = makeFetch([
       {
         body: {
           data: {
-            sellubSubscriptions: {
+            dpsEAllSubscriptions: {
               totalItems: 1,
               items: [
                 {
-                  id: "s1",
-                  appId: "app_1",
-                  customerEmail: "a@b.co",
-                  tier: "pro",
-                  active: true,
-                  expiresAt: "2026-01-01T00:00:00Z",
-                  orderId: "o1",
+                  id: "1",
+                  customerId: "42",
+                  planId: "7",
+                  status: "ACTIVE",
+                  startDate: "2026-01-01T00:00:00Z",
+                  nextBillingDate: "2026-02-01T00:00:00Z",
+                  pausedAt: null,
+                  cancelledAt: null,
+                  plan: {
+                    id: "7",
+                    name: "Pro",
+                    interval: "MONTH",
+                    intervalCount: 1,
+                    price: 5000,
+                    currency: "GHS",
+                  },
                 },
               ],
             },
@@ -331,10 +340,21 @@ describe("AdminClient — orders", () => {
       },
     ]);
     const admin = createAdminClient({ adminToken: "tok", fetch: f.fetch });
-    const out = await admin.listSubscriptions({ tier: "pro", activeOnly: true, take: 50 });
-    expect(out.items[0].tier).toBe("pro");
+    const out = await admin.listSubscriptions({ status: "ACTIVE", take: 50 });
+    expect(out.items[0].status).toBe("ACTIVE");
+    expect(out.items[0].plan?.name).toBe("Pro");
     const body = JSON.parse((f.calls[0].init.body as string) ?? "{}");
-    expect(body.variables).toEqual({ take: 50, skip: 0, tier: "pro", activeOnly: true });
-    expect(body.query).toMatch(/sellubSubscriptions/);
+    expect(body.variables).toEqual({ options: { take: 50, skip: 0, status: "ACTIVE" } });
+    expect(body.query).toMatch(/dpsEAllSubscriptions/);
+  });
+
+  it("listSubscriptions omits status when not provided", async () => {
+    const f = makeFetch([
+      { body: { data: { dpsEAllSubscriptions: { totalItems: 0, items: [] } } } },
+    ]);
+    const admin = createAdminClient({ adminToken: "tok", fetch: f.fetch });
+    await admin.listSubscriptions();
+    const body = JSON.parse((f.calls[0].init.body as string) ?? "{}");
+    expect(body.variables.options).toEqual({ take: 25, skip: 0 });
   });
 });

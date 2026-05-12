@@ -119,15 +119,29 @@ export interface AdminRefundResult {
   transactionId?: string | null;
 }
 
+/**
+ * Vendure-backed subscription as exposed by the
+ * `sellub-subscriptions` plugin (`dpsEAllSubscriptions` admin query).
+ * `customerId` and `planId` are loose references — the plugin keeps
+ * subscriptions decoupled from the Vendure customer/order graph.
+ */
 export interface AdminSubscriptionSummary {
-  /** DPS object id. */
   id: string;
-  appId: string;
-  customerEmail: string;
-  tier: string | null;
-  active: boolean;
-  expiresAt: string | null;
-  orderId: string | null;
+  customerId: string;
+  planId: string;
+  status: string;
+  startDate: string;
+  nextBillingDate: string;
+  pausedAt: string | null;
+  cancelledAt: string | null;
+  plan?: {
+    id: string;
+    name: string;
+    interval: string;
+    intervalCount: number;
+    price: number;
+    currency: string;
+  } | null;
 }
 
 export interface AdminClientApi {
@@ -161,19 +175,16 @@ export interface AdminClientApi {
   refundOrder(input: AdminRefundInput): Promise<AdminRefundResult>;
 
   /**
-   * List DPS subscriptions for a given app. Calls
-   * `dps_subscriptions_list` if available; falls back to a Sellub-side
-   * subscription resolver. Optional `tier` and `activeOnly` filters.
+   * List subscriptions across all customers (admin view). Backed by the
+   * `dpsEAllSubscriptions` Vendure Admin GraphQL query exposed by the
+   * `sellub-subscriptions` server plugin.
    *
-   * NOTE: This currently dispatches against the Sellub Admin API; an
-   * inter-service variant that talks to DPS directly will land in a
-   * future slice and live on `@duabalabs/dps-client`.
+   * Filter by `status` (`ACTIVE`, `PAUSED`, `CANCELLED`, `EXPIRED`).
    */
   listSubscriptions(input?: {
     take?: number;
     skip?: number;
-    tier?: string;
-    activeOnly?: boolean;
+    status?: string;
   }): Promise<{ items: AdminSubscriptionSummary[]; totalItems: number }>;
 }
 
@@ -467,49 +478,47 @@ export function createAdminClient(options: AdminClientOptions): AdminClientApi {
     },
 
     async listSubscriptions(input) {
-      // Sellub's admin API exposes DPS subscriptions through the
-      // `sellubSubscriptions` query (added by the `sellub-subscriptions`
-      // plugin). Server-side filtering keeps the surface here thin.
+      const options: Record<string, unknown> = {
+        take: input?.take ?? 25,
+        skip: input?.skip ?? 0,
+      };
+      if (input?.status) {
+        options.status = input.status;
+      }
       const data = await rawQuery<{
-        sellubSubscriptions: {
+        dpsEAllSubscriptions: {
           totalItems: number;
           items: AdminSubscriptionSummary[];
         };
       }>(
         /* GraphQL */ `
-          query SellubAdminSubscriptions(
-            $take: Int
-            $skip: Int
-            $tier: String
-            $activeOnly: Boolean
-          ) {
-            sellubSubscriptions(
-              take: $take
-              skip: $skip
-              tier: $tier
-              activeOnly: $activeOnly
-            ) {
+          query SellubAdminAllSubscriptions($options: DpsESubscriptionListOptions) {
+            dpsEAllSubscriptions(options: $options) {
               totalItems
               items {
                 id
-                appId
-                customerEmail
-                tier
-                active
-                expiresAt
-                orderId
+                customerId
+                planId
+                status
+                startDate
+                nextBillingDate
+                pausedAt
+                cancelledAt
+                plan {
+                  id
+                  name
+                  interval
+                  intervalCount
+                  price
+                  currency
+                }
               }
             }
           }
         `,
-        {
-          take: input?.take ?? 25,
-          skip: input?.skip ?? 0,
-          tier: input?.tier,
-          activeOnly: input?.activeOnly,
-        },
+        { options },
       );
-      return data.sellubSubscriptions;
+      return data.dpsEAllSubscriptions;
     },
   };
 }

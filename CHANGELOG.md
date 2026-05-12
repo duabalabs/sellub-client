@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.1 — 2026-05-12 — admin.listSubscriptions wired to real resolver
+
+### Changed (BREAKING for unreleased preview consumers only)
+
+- `admin.listSubscriptions()` now calls the actual `dpsEAllSubscriptions`
+  Vendure Admin GraphQL query exposed by the `sellub-subscriptions` server
+  plugin. The 0.6.0 surface that referenced a non-existent
+  `sellubSubscriptions` resolver was removed.
+- Filter changed from `{ tier?, activeOnly? }` to `{ status? }`
+  (`ACTIVE | PAUSED | CANCELLED | EXPIRED`) to match the server entity.
+- `AdminSubscriptionSummary` re-typed against the real `Subscription`
+  entity: `customerId`, `planId`, `status`, `startDate`, `nextBillingDate`,
+  `pausedAt`, `cancelledAt`, optional `plan { id, name, interval, intervalCount, price, currency }`.
+
+### Honest gaps
+
+- The server still simulates the recurring charge
+  (`subscription-payment.service.ts:137`); see
+  [PLATFORM-STATUS](https://docs.duabalabs.com/sellub/admin/subscriptions)
+  for live wiring status.
+
 ## 0.6.0 — 2026-05-12 — Admin orders, refunds, subscriptions (A1 slice 4)
 
 ### Added
