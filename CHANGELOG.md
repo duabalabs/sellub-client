@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.5.0 — 2026-05-12 — Admin namespace + getCatalog alias (A1 slice 1)
+
+### Added
+
+- **NEW: `AdminClient`** — typed wrapper around Sellub's Vendure Admin
+  GraphQL API at `${baseUrl}/admin-api`. Auth via
+  `Authorization: Bearer <adminToken>`. Surfaces:
+  - `listChannels()` — returns `{ items: AdminChannel[]; totalItems }`.
+  - `query()` — raw GraphQL escape hatch.
+- **`createSellubClient({ adminToken })`** now exposes `client.admin` when
+  an admin token is supplied. Without it, `client.admin` is `undefined`.
+- **Browser safety guard** — `createAdminClient` throws at construction
+  time when it detects a browser-like environment. Pass
+  `allowBrowser: true` (or `allowAdminInBrowser: true` on the parent
+  client) to opt out.
+- **`shop.getCatalog(input?)`** — spec-named alias for `shop.getProducts`.
+  Identical behaviour, identical return shape. Provided so integrators can
+  use the canonical name from the A1 work-stream.
+- **`AdminApiError`** — thrown by all admin operations. Carries `errors[]`
+  and `status`.
+- 9 new vitest specs covering admin client behaviour, browser guard,
+  conditional wiring, and the `getCatalog` alias. Total: 17 tests.
+
+### Notes
+
+- Future A1 slices will add `listOrders`, `getOrder`, `cancelOrder`,
+  `refundOrder`, `listSubscriptions` to the admin namespace.
+
 ## 0.4.0 — 2026-05 — ShopClient
 
 - **NEW: `ShopClient`** — typed wrapper around Sellub's Vendure Shop GraphQL

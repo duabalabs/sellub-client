@@ -35,6 +35,15 @@ export {
 } from "./shop-client";
 import { createShopClient, type ShopClientApi } from "./shop-client";
 
+export {
+  createAdminClient,
+  AdminApiError,
+  type AdminClientOptions,
+  type AdminClientApi,
+  type AdminChannel,
+} from "./admin-client";
+import { createAdminClient, type AdminClientApi } from "./admin-client";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Types — mirror sellub-server/src/plugins/sellub-external-payments/src/types.ts
 // ─────────────────────────────────────────────────────────────────────────────
@@ -284,6 +293,17 @@ export interface SellubClientOptions {
    * The ShopClient automatically refreshes this from response headers.
    */
   shopAuthToken?: string;
+  /**
+   * Bearer token for the Sellub Admin GraphQL API. When set, the returned
+   * client exposes `client.admin`. **Server-only.** Never embed in browser
+   * bundles. Pass `allowAdminInBrowser: true` to bypass the safety guard.
+   */
+  adminToken?: string;
+  /**
+   * Opt-in escape hatch to allow constructing the admin client in a
+   * browser-like environment. Off by default.
+   */
+  allowAdminInBrowser?: boolean;
 }
 
 export interface SellubClient {
@@ -295,6 +315,11 @@ export interface SellubClient {
    * Scoped to `options.channelToken` if provided.
    */
   shop: ShopClientApi;
+  /**
+   * Vendure Admin GraphQL API. Only present when `options.adminToken`
+   * was supplied. Throws `AdminApiError` on error.
+   */
+  admin?: AdminClientApi;
 }
 
 export interface ExternalPaymentsApi {
@@ -517,6 +542,17 @@ export function createSellubClient(
       authToken: options.shopAuthToken,
       fetch: options.fetch,
     }),
+
+    ...(options.adminToken
+      ? {
+          admin: createAdminClient({
+            baseUrl: options.baseUrl,
+            adminToken: options.adminToken,
+            fetch: options.fetch,
+            allowBrowser: options.allowAdminInBrowser,
+          }),
+        }
+      : {}),
   };
 }
 

@@ -127,6 +127,17 @@ export interface ShopClientApi {
     skip?: number;
     term?: string;
   }): Promise<{ items: ShopProductSummary[]; totalItems: number }>;
+  /**
+   * Spec-named alias for {@link ShopClientApi.getProducts}. Provided so
+   * integrators can use the canonical name from the A1 work-stream
+   * (`shop.getCatalog`) without having to remember Vendure's `products`
+   * naming. Identical behaviour and identical return shape.
+   */
+  getCatalog(input?: {
+    take?: number;
+    skip?: number;
+    term?: string;
+  }): Promise<{ items: ShopProductSummary[]; totalItems: number }>;
   getProduct(input: { id?: string; slug?: string }): Promise<ShopProductDetail | null>;
 
   // Active order
@@ -305,6 +316,11 @@ export function createShopClient(options: ShopClientOptions = {}): ShopClientApi
         }
       );
       return data.products;
+    },
+
+    // Spec-named alias — see ShopClientApi.getCatalog.
+    async getCatalog(input = {}) {
+      return this.getProducts(input);
     },
 
     async getProduct(input) {
