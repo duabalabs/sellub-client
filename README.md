@@ -7,6 +7,39 @@ identity / automation, Sellub handles commerce — catalog, checkout, orders,
 fulfillment, payments. This package wraps Sellub's REST + (later) GraphQL
 surfaces with typed helpers.
 
+## v0.4 — Shop API (NEW)
+
+The `ShopClient` is a thin GraphQL wrapper around Sellub's Vendure Shop API
+at `${baseUrl}/shop-api`. It manages session continuity for you (Vendure's
+`vendure-auth-token` is captured from response headers and re-attached on
+the next request).
+
+```ts
+import { createSellubClient } from "@duabalabs/sellub-client";
+
+const sellub = createSellubClient({
+  baseUrl: process.env.NEXT_PUBLIC_SELLUB_API_URL,        // default https://api.sellub.com
+  publishableKey: process.env.NEXT_PUBLIC_SELLUB_PUBLISHABLE_KEY,
+  channelToken: process.env.NEXT_PUBLIC_SELLUB_CHANNEL_TOKEN, // for Shop
+});
+
+const products = await sellub.shop.getProducts({ take: 12, term: "shoes" });
+const order = await sellub.shop.addItemToOrder({
+  productVariantId: products.items[0].id,
+  quantity: 1,
+});
+await sellub.shop.setCustomerForOrder({
+  emailAddress: "buyer@example.com",
+  firstName: "Buyer",
+  lastName: "Co",
+});
+await sellub.shop.transitionOrderToState({ state: "ArrangingPayment" });
+const paid = await sellub.shop.addPaymentToOrder({ method: "paystack" });
+```
+
+For Shop-only callers, `createShopClient(...)` is exported directly. See the
+[CHANGELOG](./CHANGELOG.md) for the full surface.
+
 ## v0.3 — Money APIs
 
 Three surfaces today, all hitting `api.sellub.com/external-payments/*` and
@@ -18,8 +51,6 @@ authenticating with a publishable key (`X-Sellub-Publishable-Key`):
 - **`invoices`** — hosted Paystack payment requests on behalf of a seller.
 
 ```ts
-import { createSellubClient } from "@duabalabs/sellub-client";
-
 const sellub = createSellubClient({
   baseUrl: process.env.NEXT_PUBLIC_SELLUB_API_URL,        // default: https://api.sellub.com
   publishableKey: process.env.NEXT_PUBLIC_SELLUB_PUBLISHABLE_KEY,
@@ -116,8 +147,8 @@ const fetched = await sellub.invoices.get(inv.requestCode!);
 | Version | Surface | Purpose |
 |---|---|---|
 | 0.1 | `externalPayments` | one-off payments (donations, simple buttons) |
-| **0.3** | `+ subscriptions, invoices` | recurring billing + hosted invoices |
-| 0.4 | `ShopClient` | Vendure Shop GraphQL — catalog, cart, checkout, orders |
+| 0.3 | `+ subscriptions, invoices` | recurring billing + hosted invoices |
+| **0.4** | `+ ShopClient` | Vendure Shop GraphQL — catalog, cart, checkout, orders |
 | 0.5 | `AdminClient` | Vendure Admin GraphQL — provisioning, fulfillment, reports |
 | 0.6 | `EmbedTokens` | short-lived session tokens for the iframe admin embed |
 | 0.7 | `Webhooks` | HMAC verifier + typed payloads for inbound Sellub webhooks |

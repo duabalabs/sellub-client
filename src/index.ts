@@ -1,7 +1,7 @@
 /**
  * @duabalabs/sellub-client — typed client for the Sellub commerce platform.
  *
- * v0.2 surface:
+ * v0.4 surface:
  *   • ExternalPayments — initialize + verify one-off payments
  *     (e.g. donation modals, simple checkout buttons).
  *   • Subscriptions    — start / fetch / cancel recurring subscriptions
@@ -9,13 +9,31 @@
  *     (e.g. SaaS subs from DuabaConnect).
  *   • Invoices         — create + fetch hosted Paystack payment requests
  *     on behalf of a Sellub seller (e.g. billing flows from DuabaTrade).
+ *   • ShopClient       — Vendure Shop GraphQL API: catalog, cart,
+ *     checkout, orders. Created with `createShopClient(...)` or via
+ *     `createSellubClient({ channelToken }).shop`.
  *
- * Future surfaces (v0.3+):
- *   • ShopClient   — Vendure Shop API (catalog, cart, checkout, orders)
+ * Future surfaces:
  *   • AdminClient  — Vendure Admin API (provisioning, fulfillment, reports)
  *   • EmbedTokens  — short-lived session tokens for the embed iframe
  *   • Webhooks     — HMAC verifier for inbound Sellub webhooks
+ *     (use `@duabalabs/sellub-webhooks` today).
  */
+
+export {
+  createShopClient,
+  ShopApiError,
+  type ShopClientOptions,
+  type ShopClientApi,
+  type OrderLineInput,
+  type AddressInput,
+  type PaymentInput,
+  type ShopProductSummary,
+  type ShopProductDetail,
+  type ShopOrder,
+  type ShippingMethodQuote,
+} from "./shop-client";
+import { createShopClient, type ShopClientApi } from "./shop-client";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types — mirror sellub-server/src/plugins/sellub-external-payments/src/types.ts
@@ -255,12 +273,28 @@ export interface SellubClientOptions {
    * Override for environments without a global (e.g. older Node).
    */
   fetch?: typeof fetch;
+  /**
+   * Vendure channel token (`Channel.token`). When set, the returned
+   * `client.shop` ShopClient is scoped to this channel. Required for any
+   * Shop API call against multi-channel servers.
+   */
+  channelToken?: string;
+  /**
+   * Initial Vendure auth token to resume an existing Shop session.
+   * The ShopClient automatically refreshes this from response headers.
+   */
+  shopAuthToken?: string;
 }
 
 export interface SellubClient {
   externalPayments: ExternalPaymentsApi;
   subscriptions: SubscriptionsApi;
   invoices: InvoicesApi;
+  /**
+   * Vendure Shop GraphQL API (catalog, cart, checkout, orders).
+   * Scoped to `options.channelToken` if provided.
+   */
+  shop: ShopClientApi;
 }
 
 export interface ExternalPaymentsApi {
@@ -476,6 +510,13 @@ export function createSellubClient(
         return data;
       },
     },
+
+    shop: createShopClient({
+      baseUrl: options.baseUrl,
+      channelToken: options.channelToken,
+      authToken: options.shopAuthToken,
+      fetch: options.fetch,
+    }),
   };
 }
 
