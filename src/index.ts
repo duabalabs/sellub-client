@@ -41,6 +41,12 @@ export {
   type AdminClientOptions,
   type AdminClientApi,
   type AdminChannel,
+  type AdminOrderSummary,
+  type AdminOrderDetail,
+  type AdminOrderListInput,
+  type AdminRefundInput,
+  type AdminRefundResult,
+  type AdminSubscriptionSummary,
 } from "./admin-client";
 import { createAdminClient, type AdminClientApi } from "./admin-client";
 

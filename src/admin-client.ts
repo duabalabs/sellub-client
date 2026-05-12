@@ -57,12 +57,124 @@ export interface AdminChannel {
   defaultLanguageCode?: string;
 }
 
+export interface AdminOrderSummary {
+  id: string;
+  code: string;
+  state: string;
+  active: boolean;
+  total: number;
+  totalWithTax: number;
+  currencyCode: string;
+  orderPlacedAt?: string | null;
+  customer?: { id: string; emailAddress: string } | null;
+}
+
+export interface AdminOrderDetail extends AdminOrderSummary {
+  shipping: number;
+  shippingWithTax: number;
+  subTotal: number;
+  subTotalWithTax: number;
+  lines: Array<{
+    id: string;
+    quantity: number;
+    linePriceWithTax: number;
+    productVariant: { id: string; name: string; sku: string };
+  }>;
+  payments?: Array<{
+    id: string;
+    method: string;
+    amount: number;
+    state: string;
+    transactionId?: string | null;
+    errorMessage?: string | null;
+  }> | null;
+}
+
+export interface AdminOrderListInput {
+  take?: number;
+  skip?: number;
+  /** Free-text term — matched against `code` (contains, case-insensitive). */
+  term?: string;
+  /** Optional state filter (exact match). */
+  state?: string;
+}
+
+export interface AdminRefundInput {
+  paymentId: string;
+  /** Refund amount in minor units. Refunds the full payment if omitted. */
+  amount?: number;
+  reason?: string;
+  /** Lines to associate with the refund (Vendure requires at least one). */
+  lines?: Array<{ orderLineId: string; quantity: number }>;
+  /** Adjustments / shipping refund in minor units. */
+  adjustment?: number;
+  shipping?: number;
+}
+
+export interface AdminRefundResult {
+  id: string;
+  state: string;
+  total: number;
+  reason?: string | null;
+  transactionId?: string | null;
+}
+
+export interface AdminSubscriptionSummary {
+  /** DPS object id. */
+  id: string;
+  appId: string;
+  customerEmail: string;
+  tier: string | null;
+  active: boolean;
+  expiresAt: string | null;
+  orderId: string | null;
+}
+
 export interface AdminClientApi {
   /** Raw GraphQL escape hatch. */
   query<T = unknown>(document: string, variables?: Record<string, unknown>): Promise<T>;
 
   /** List Vendure channels visible to the configured admin token. */
   listChannels(): Promise<{ items: AdminChannel[]; totalItems: number }>;
+
+  /** List orders, newest first. Use `term` for code search and `state` for filtering. */
+  listOrders(input?: AdminOrderListInput): Promise<{ items: AdminOrderSummary[]; totalItems: number }>;
+
+  /** Fetch a single order by id or code. Returns `null` when not found. */
+  getOrder(input: { id?: string; code?: string }): Promise<AdminOrderDetail | null>;
+
+  /**
+   * Cancel an order (or specific lines). For full cancellation, leave `lines`
+   * unset. Returns the updated `AdminOrderDetail`. Throws `AdminApiError`
+   * when Vendure returns an `ErrorResult` discriminated union member.
+   */
+  cancelOrder(input: {
+    orderId: string;
+    reason?: string;
+    lines?: Array<{ orderLineId: string; quantity: number }>;
+  }): Promise<AdminOrderDetail>;
+
+  /**
+   * Refund a payment against an order. `lines` must reference the order
+   * lines being refunded (Vendure validates this server-side).
+   */
+  refundOrder(input: AdminRefundInput): Promise<AdminRefundResult>;
+
+  /**
+   * List DPS subscriptions for a given app. Calls
+   * `dps_subscriptions_list` if available; falls back to a Sellub-side
+   * subscription resolver. Optional `tier` and `activeOnly` filters.
+   *
+   * NOTE: This currently dispatches against the Sellub Admin API; an
+   * inter-service variant that talks to DPS directly will land in a
+   * future slice and live on `@duabalabs/dps-client`.
+   */
+  listSubscriptions(input?: {
+    take?: number;
+    skip?: number;
+    tier?: string;
+    activeOnly?: boolean;
+  }): Promise<{ items: AdminSubscriptionSummary[]; totalItems: number }>;
 }
 
 const DEFAULT_BASE_URL = "https://api.sellub.com";
@@ -125,6 +237,52 @@ export function createAdminClient(options: AdminClientOptions): AdminClientApi {
     return body.data;
   }
 
+  const ORDER_SUMMARY_FRAGMENT = /* GraphQL */ `
+    fragment OrderSummaryFields on Order {
+      id
+      code
+      state
+      active
+      total
+      totalWithTax
+      currencyCode
+      orderPlacedAt
+      customer {
+        id
+        emailAddress
+      }
+    }
+  `;
+
+  const ORDER_DETAIL_FRAGMENT = /* GraphQL */ `
+    fragment OrderDetailFields on Order {
+      ...OrderSummaryFields
+      shipping
+      shippingWithTax
+      subTotal
+      subTotalWithTax
+      lines {
+        id
+        quantity
+        linePriceWithTax
+        productVariant {
+          id
+          name
+          sku
+        }
+      }
+      payments {
+        id
+        method
+        amount
+        state
+        transactionId
+        errorMessage
+      }
+    }
+    ${ORDER_SUMMARY_FRAGMENT}
+  `;
+
   return {
     query: rawQuery,
 
@@ -146,6 +304,212 @@ export function createAdminClient(options: AdminClientOptions): AdminClientApi {
         }
       `);
       return data.channels;
+    },
+
+    async listOrders(input) {
+      const filter: Record<string, unknown> = {};
+      if (input?.term) {
+        filter.code = { contains: input.term };
+      }
+      if (input?.state) {
+        filter.state = { eq: input.state };
+      }
+
+      const options: Record<string, unknown> = {
+        take: input?.take ?? 25,
+        skip: input?.skip ?? 0,
+        sort: { orderPlacedAt: "DESC" },
+      };
+      if (Object.keys(filter).length > 0) {
+        options.filter = filter;
+      }
+
+      const data = await rawQuery<{
+        orders: { items: AdminOrderSummary[]; totalItems: number };
+      }>(
+        /* GraphQL */ `
+          query SellubAdminOrders($options: OrderListOptions) {
+            orders(options: $options) {
+              totalItems
+              items {
+                ...OrderSummaryFields
+              }
+            }
+          }
+          ${ORDER_SUMMARY_FRAGMENT}
+        `,
+        { options },
+      );
+      return data.orders;
+    },
+
+    async getOrder(input) {
+      if (!input.id && !input.code) {
+        throw new Error("[sellub-client/admin] getOrder: pass `id` or `code`.");
+      }
+      if (input.id) {
+        const data = await rawQuery<{ order: AdminOrderDetail | null }>(
+          /* GraphQL */ `
+            query SellubAdminOrderById($id: ID!) {
+              order(id: $id) {
+                ...OrderDetailFields
+              }
+            }
+            ${ORDER_DETAIL_FRAGMENT}
+          `,
+          { id: input.id },
+        );
+        return data.order;
+      }
+      const data = await rawQuery<{ orderByCode: AdminOrderDetail | null }>(
+        /* GraphQL */ `
+          query SellubAdminOrderByCode($code: String!) {
+            orderByCode(code: $code) {
+              ...OrderDetailFields
+            }
+          }
+          ${ORDER_DETAIL_FRAGMENT}
+        `,
+        { code: input.code },
+      );
+      return data.orderByCode;
+    },
+
+    async cancelOrder(input) {
+      const data = await rawQuery<{
+        cancelOrder:
+          | ({ __typename: "Order" } & AdminOrderDetail)
+          | { __typename: string; errorCode: string; message: string };
+      }>(
+        /* GraphQL */ `
+          mutation SellubAdminCancelOrder($input: CancelOrderInput!) {
+            cancelOrder(input: $input) {
+              __typename
+              ... on Order {
+                ...OrderDetailFields
+              }
+              ... on ErrorResult {
+                errorCode
+                message
+              }
+            }
+          }
+          ${ORDER_DETAIL_FRAGMENT}
+        `,
+        {
+          input: {
+            orderId: input.orderId,
+            reason: input.reason,
+            lines: input.lines,
+          },
+        },
+      );
+      const result = data.cancelOrder;
+      if (result.__typename !== "Order") {
+        const err = result as { errorCode: string; message: string };
+        throw new AdminApiError(
+          `cancelOrder failed: ${err.errorCode} — ${err.message}`,
+          [{ message: err.message, extensions: { code: err.errorCode } }],
+          200,
+        );
+      }
+      // Strip __typename before returning.
+      const { __typename: _t, ...rest } = result;
+      return rest as AdminOrderDetail;
+    },
+
+    async refundOrder(input) {
+      const data = await rawQuery<{
+        refundOrder:
+          | ({ __typename: "Refund" } & AdminRefundResult)
+          | { __typename: string; errorCode: string; message: string };
+      }>(
+        /* GraphQL */ `
+          mutation SellubAdminRefundOrder($input: RefundOrderInput!) {
+            refundOrder(input: $input) {
+              __typename
+              ... on Refund {
+                id
+                state
+                total
+                reason
+                transactionId
+              }
+              ... on ErrorResult {
+                errorCode
+                message
+              }
+            }
+          }
+        `,
+        {
+          input: {
+            paymentId: input.paymentId,
+            amount: input.amount,
+            reason: input.reason,
+            lines: input.lines ?? [],
+            adjustment: input.adjustment ?? 0,
+            shipping: input.shipping ?? 0,
+          },
+        },
+      );
+      const result = data.refundOrder;
+      if (result.__typename !== "Refund") {
+        const err = result as { errorCode: string; message: string };
+        throw new AdminApiError(
+          `refundOrder failed: ${err.errorCode} — ${err.message}`,
+          [{ message: err.message, extensions: { code: err.errorCode } }],
+          200,
+        );
+      }
+      const { __typename: _t, ...rest } = result;
+      return rest as AdminRefundResult;
+    },
+
+    async listSubscriptions(input) {
+      // Sellub's admin API exposes DPS subscriptions through the
+      // `sellubSubscriptions` query (added by the `sellub-subscriptions`
+      // plugin). Server-side filtering keeps the surface here thin.
+      const data = await rawQuery<{
+        sellubSubscriptions: {
+          totalItems: number;
+          items: AdminSubscriptionSummary[];
+        };
+      }>(
+        /* GraphQL */ `
+          query SellubAdminSubscriptions(
+            $take: Int
+            $skip: Int
+            $tier: String
+            $activeOnly: Boolean
+          ) {
+            sellubSubscriptions(
+              take: $take
+              skip: $skip
+              tier: $tier
+              activeOnly: $activeOnly
+            ) {
+              totalItems
+              items {
+                id
+                appId
+                customerEmail
+                tier
+                active
+                expiresAt
+                orderId
+              }
+            }
+          }
+        `,
+        {
+          take: input?.take ?? 25,
+          skip: input?.skip ?? 0,
+          tier: input?.tier,
+          activeOnly: input?.activeOnly,
+        },
+      );
+      return data.sellubSubscriptions;
     },
   };
 }

@@ -108,3 +108,233 @@ describe("createSellubClient — admin wiring", () => {
     expect(typeof client.admin?.listChannels).toBe("function");
   });
 });
+
+describe("AdminClient — orders", () => {
+  it("listOrders sends OrderListOptions with sort + filter", async () => {
+    const f = makeFetch([
+      {
+        body: {
+          data: {
+            orders: {
+              totalItems: 1,
+              items: [
+                {
+                  id: "1",
+                  code: "ORD-1",
+                  state: "PaymentSettled",
+                  active: false,
+                  total: 1000,
+                  totalWithTax: 1100,
+                  currencyCode: "GHS",
+                  orderPlacedAt: "2025-01-01T00:00:00Z",
+                  customer: { id: "c1", emailAddress: "a@b.co" },
+                },
+              ],
+            },
+          },
+        },
+      },
+    ]);
+    const admin = createAdminClient({ adminToken: "tok", fetch: f.fetch });
+    const out = await admin.listOrders({ term: "ORD", state: "PaymentSettled", take: 10 });
+    expect(out.totalItems).toBe(1);
+    const body = JSON.parse((f.calls[0].init.body as string) ?? "{}");
+    expect(body.variables.options.take).toBe(10);
+    expect(body.variables.options.skip).toBe(0);
+    expect(body.variables.options.sort).toEqual({ orderPlacedAt: "DESC" });
+    expect(body.variables.options.filter).toEqual({
+      code: { contains: "ORD" },
+      state: { eq: "PaymentSettled" },
+    });
+  });
+
+  it("listOrders omits filter when no term/state given", async () => {
+    const f = makeFetch([
+      { body: { data: { orders: { totalItems: 0, items: [] } } } },
+    ]);
+    const admin = createAdminClient({ adminToken: "tok", fetch: f.fetch });
+    await admin.listOrders();
+    const body = JSON.parse((f.calls[0].init.body as string) ?? "{}");
+    expect(body.variables.options.filter).toBeUndefined();
+    expect(body.variables.options.take).toBe(25);
+  });
+
+  it("getOrder by id returns the order", async () => {
+    const detail = {
+      id: "1",
+      code: "ORD-1",
+      state: "PaymentSettled",
+      active: false,
+      total: 1000,
+      totalWithTax: 1100,
+      currencyCode: "GHS",
+      orderPlacedAt: null,
+      customer: null,
+      shipping: 0,
+      shippingWithTax: 0,
+      subTotal: 1000,
+      subTotalWithTax: 1100,
+      lines: [],
+      payments: [],
+    };
+    const f = makeFetch([{ body: { data: { order: detail } } }]);
+    const admin = createAdminClient({ adminToken: "tok", fetch: f.fetch });
+    const order = await admin.getOrder({ id: "1" });
+    expect(order?.code).toBe("ORD-1");
+    const body = JSON.parse((f.calls[0].init.body as string) ?? "{}");
+    expect(body.variables).toEqual({ id: "1" });
+    expect(body.query).toMatch(/order\(id: \$id\)/);
+  });
+
+  it("getOrder by code uses orderByCode", async () => {
+    const f = makeFetch([{ body: { data: { orderByCode: null } } }]);
+    const admin = createAdminClient({ adminToken: "tok", fetch: f.fetch });
+    const order = await admin.getOrder({ code: "ORD-99" });
+    expect(order).toBeNull();
+    const body = JSON.parse((f.calls[0].init.body as string) ?? "{}");
+    expect(body.query).toMatch(/orderByCode\(code: \$code\)/);
+    expect(body.variables).toEqual({ code: "ORD-99" });
+  });
+
+  it("getOrder throws when neither id nor code given", async () => {
+    const admin = createAdminClient({
+      adminToken: "tok",
+      fetch: (() => {}) as unknown as typeof fetch,
+    });
+    await expect(admin.getOrder({})).rejects.toThrow(/id.*code/);
+  });
+
+  it("cancelOrder unwraps Order union member", async () => {
+    const f = makeFetch([
+      {
+        body: {
+          data: {
+            cancelOrder: {
+              __typename: "Order",
+              id: "1",
+              code: "ORD-1",
+              state: "Cancelled",
+              active: false,
+              total: 1000,
+              totalWithTax: 1100,
+              currencyCode: "GHS",
+              orderPlacedAt: null,
+              customer: null,
+              shipping: 0,
+              shippingWithTax: 0,
+              subTotal: 1000,
+              subTotalWithTax: 1100,
+              lines: [],
+              payments: [],
+            },
+          },
+        },
+      },
+    ]);
+    const admin = createAdminClient({ adminToken: "tok", fetch: f.fetch });
+    const order = await admin.cancelOrder({ orderId: "1", reason: "test" });
+    expect(order.state).toBe("Cancelled");
+    expect((order as unknown as { __typename?: string }).__typename).toBeUndefined();
+  });
+
+  it("cancelOrder throws AdminApiError on ErrorResult union member", async () => {
+    const f = makeFetch([
+      {
+        body: {
+          data: {
+            cancelOrder: {
+              __typename: "CancelActiveOrderError",
+              errorCode: "CANCEL_ACTIVE_ORDER_ERROR",
+              message: "cannot cancel active order",
+            },
+          },
+        },
+      },
+    ]);
+    const admin = createAdminClient({ adminToken: "tok", fetch: f.fetch });
+    await expect(admin.cancelOrder({ orderId: "1" })).rejects.toBeInstanceOf(AdminApiError);
+  });
+
+  it("refundOrder unwraps Refund union member", async () => {
+    const f = makeFetch([
+      {
+        body: {
+          data: {
+            refundOrder: {
+              __typename: "Refund",
+              id: "r1",
+              state: "Settled",
+              total: 500,
+              reason: "duplicate",
+              transactionId: "txn_1",
+            },
+          },
+        },
+      },
+    ]);
+    const admin = createAdminClient({ adminToken: "tok", fetch: f.fetch });
+    const refund = await admin.refundOrder({
+      paymentId: "p1",
+      lines: [{ orderLineId: "l1", quantity: 1 }],
+      reason: "duplicate",
+    });
+    expect(refund.id).toBe("r1");
+    expect(refund.state).toBe("Settled");
+    const body = JSON.parse((f.calls[0].init.body as string) ?? "{}");
+    expect(body.variables.input.paymentId).toBe("p1");
+    expect(body.variables.input.lines).toEqual([{ orderLineId: "l1", quantity: 1 }]);
+    expect(body.variables.input.adjustment).toBe(0);
+    expect(body.variables.input.shipping).toBe(0);
+  });
+
+  it("refundOrder throws AdminApiError on ErrorResult", async () => {
+    const f = makeFetch([
+      {
+        body: {
+          data: {
+            refundOrder: {
+              __typename: "AlreadyRefundedError",
+              errorCode: "ALREADY_REFUNDED_ERROR",
+              message: "already refunded",
+            },
+          },
+        },
+      },
+    ]);
+    const admin = createAdminClient({ adminToken: "tok", fetch: f.fetch });
+    await expect(
+      admin.refundOrder({ paymentId: "p1" }),
+    ).rejects.toBeInstanceOf(AdminApiError);
+  });
+
+  it("listSubscriptions queries sellubSubscriptions with filters", async () => {
+    const f = makeFetch([
+      {
+        body: {
+          data: {
+            sellubSubscriptions: {
+              totalItems: 1,
+              items: [
+                {
+                  id: "s1",
+                  appId: "app_1",
+                  customerEmail: "a@b.co",
+                  tier: "pro",
+                  active: true,
+                  expiresAt: "2026-01-01T00:00:00Z",
+                  orderId: "o1",
+                },
+              ],
+            },
+          },
+        },
+      },
+    ]);
+    const admin = createAdminClient({ adminToken: "tok", fetch: f.fetch });
+    const out = await admin.listSubscriptions({ tier: "pro", activeOnly: true, take: 50 });
+    expect(out.items[0].tier).toBe("pro");
+    const body = JSON.parse((f.calls[0].init.body as string) ?? "{}");
+    expect(body.variables).toEqual({ take: 50, skip: 0, tier: "pro", activeOnly: true });
+    expect(body.query).toMatch(/sellubSubscriptions/);
+  });
+});

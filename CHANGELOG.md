@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.6.0 — 2026-05-12 — Admin orders, refunds, subscriptions (A1 slice 4)
+
+### Added
+
+- **`admin.listOrders({ take, skip, term, state })`** — paginated, sorted
+  by `orderPlacedAt DESC`. Server-side filter via `OrderListOptions`
+  (`code: { contains }`, `state: { eq }`).
+- **`admin.getOrder({ id }) | admin.getOrder({ code })`** — returns the
+  full `AdminOrderDetail` (lines, payments, totals) or `null`.
+- **`admin.cancelOrder({ orderId, reason?, lines? })`** — handles the
+  `Order | ErrorResult` union; throws `AdminApiError` on
+  `CancelActiveOrderError` and friends. Strips `__typename` before return.
+- **`admin.refundOrder({ paymentId, lines, amount?, reason?, adjustment?, shipping? })`** —
+  same union-unwrap pattern; returns the typed `AdminRefundResult`.
+- **`admin.listSubscriptions({ take, skip, tier?, activeOnly? })`** —
+  queries the `sellubSubscriptions` resolver (provided by the
+  `sellub-subscriptions` plugin on the server side; will no-op with a
+  GraphQL "Unknown field" error until that plugin lands).
+- New exported types: `AdminOrderSummary`, `AdminOrderDetail`,
+  `AdminOrderListInput`, `AdminRefundInput`, `AdminRefundResult`,
+  `AdminSubscriptionSummary`.
+
+### Honest gaps
+
+- `listSubscriptions` depends on a server-side `sellubSubscriptions`
+  resolver that ships with work-stream C3. The client surface is
+  finalised so consumers can wire it without churn.
+- `cancelOrder` / `refundOrder` only surface the first ErrorResult
+  variant message — granular per-error-code typing is intentionally
+  deferred (caller can still inspect `.errors[0].extensions.code`).
+
 ## 0.5.0 — 2026-05-12 — Admin namespace + getCatalog alias (A1 slice 1)
 
 ### Added
